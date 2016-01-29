@@ -7,17 +7,8 @@ BEGIN { $ENV{PERL_ONLY} = 1; }
 
 use Test::More import => ['!pass'];
 use Dancer::Test;
+use Plack::Test;
 use HTTP::Date qw( time2str );
-
-
-plan skip_all => "Skip test with Test::TCP in win32"
-  if $^O eq 'MSWin32';
-    
-plan skip_all => "Test::TCP is required"
-  unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-
-plan skip_all => "Plack is required"
-  unless Dancer::ModuleLoader->load('Plack::Loader');
 
 plan tests => 10;
 
@@ -44,46 +35,28 @@ is $r->status,  400;
 is $r->content, 'Bad Request';
 
 require HTTP::Request;
-require LWP::UserAgent;
 
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
+        my $cb = shift;
         my $req =
           HTTP::Request->new(
-            GET => "http://127.0.0.1:$port/hello%00.txt" );
-        my $ua  = LWP::UserAgent->new();
-        my $res = $ua->request($req);
+            GET => "http://127.0.0.1/hello%00.txt" );
+        my $res = $cb->($req);
         ok !$res->is_success;
         is $res->code, 400;
-    },
-    server => sub {
-        my $port = shift;
-        setting apphandler => 'PSGI';
-        Dancer::Config->load;
-        my $app = Dancer::Handler->psgi_app;
-        Plack::Loader->auto( port => $port, host => '127.0.0.1' )->run($app);
-        Dancer->dance();
-    }
-);
 
-Test::TCP::test_tcp(
-    client => sub {
-        my $port = shift;
-        my $req =
+        $req =
           HTTP::Request->new(
-            GET => "http://127.0.0.1:$port/hello.txt", [ 'If-Modified-Since' => $date ] );
-        my $ua  = LWP::UserAgent->new();
-        my $res = $ua->request($req);
+            GET => "http://127.0.0.1/hello.txt", [ 'If-Modified-Since' => $date ] );
+        $res = $cb->($req);
         ok !$res->is_success;
         is $res->code, 304;
     },
-    server => sub {
+    app => do {
         my $port = shift;
         setting apphandler => 'PSGI';
         Dancer::Config->load;
-        my $app = Dancer::Handler->psgi_app;
-        Plack::Loader->auto( port => $port, host => '127.0.0.1' )->run($app);
         Dancer->dance();
     }
 );

@@ -13,15 +13,12 @@ use Dancer::ModuleLoader;
 use Dancer;
 use Dancer::Cookie;
 
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => "Test::TCP is needed for this test"
-  unless Dancer::ModuleLoader->load("Test::TCP" => "1.30");
 plan skip_all => "YAML is needed for this test"
   unless Dancer::ModuleLoader->load("YAML");
 
 plan tests => 8;
 
-use LWP::UserAgent;
+use Plack::Test;
 use File::Path 'rmtree';
 use Dancer::Config;
 
@@ -37,13 +34,12 @@ for my $session_expires (keys %tests) {
 
     note "Translate from $session_expires";
 
-    Test::TCP::test_tcp(
+    test_psgi(
         client => sub {
-            my $port = shift;
-            my $ua   = LWP::UserAgent->new;
+            my $cb = shift;
             my $req =
-              HTTP::Request->new(GET => "http://127.0.0.1:$port/set_session/test");
-            my $res = $ua->request($req);
+              HTTP::Request->new(GET => "http://127.0.0.1/set_session/test");
+            my $res = $cb->($req);
             ok $res->is_success, 'req is success';
             my $cookie = $res->header('Set-Cookie');
             ok $cookie, 'cookie is set';
@@ -52,9 +48,7 @@ for my $session_expires (keys %tests) {
 
             is $expires, $cookie_expires, 'expire date is correct';
         },
-        server => sub {
-            my $port = shift;
-
+        app => do {
             use File::Spec;
             use lib File::Spec->catdir( 't', 'lib' );
             use TestApp;
@@ -63,8 +57,7 @@ for my $session_expires (keys %tests) {
             set( session         => 'YAML',
                  session_expires => $session_expires,
                  environment     => 'production',
-                 port            => $port,
-                 server          => '127.0.0.1',
+                 apphandler      => 'PSGI',
                  startup_info    => 0 );
             Dancer->dance();
         },

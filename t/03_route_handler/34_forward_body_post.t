@@ -5,34 +5,23 @@ use Test::More import => ['!pass'];
 use Carp;
 $Carp::Verbose = 1;
 
-BEGIN {
-    use Dancer::ModuleLoader;
-
-    plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-
-    plan skip_all => 'Test::TCP is needed to run this test'
-        unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-}
-
 use Dancer;
-use LWP::UserAgent;
-use HTTP::Request;
+use Plack::Test;
+use HTTP::Request::Common;
 
 plan tests => 2;
 
-Test::TCP::test_tcp(
+test_psgi(
   client => sub {
-      my $port = shift;
-      my $url_base  = "http://127.0.0.1:$port";
-      my $ua  = LWP::UserAgent->new;
-      my $res = $ua->post($url_base . "/foo", { data => 'foo'});
+      my $cb = shift;
+      my $url_base  = "http://127.0.0.1";
+      my $res = $cb->(POST $url_base . "/foo", { data => 'foo'});
       is($res->decoded_content, "data:foo");
 
-      $res = $ua->post($url_base . "/foz", { data => 'foo'});
+      $res = $cb->(POST $url_base . "/foz", { data => 'foo'});
       is($res->decoded_content, "data:foo");
   },
-  server => sub {
-      my $port = shift;
+  app => do {
       Dancer::Config->load;
       post '/foo' => sub {
           forward '/bar';
@@ -42,7 +31,7 @@ Test::TCP::test_tcp(
 
       post '/foz' => sub { forward '/baz';  };
       post '/baz' => sub { join(":",params('body')) };
-      set startup_info => 0, port => $port, server => '127.0.0.1', show_errors  => 1;
+      set startup_info => 0, apphander => 'PSGI', show_errors  => 1;
       Dancer->dance();
   },
                    );

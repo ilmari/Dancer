@@ -12,67 +12,57 @@ plan skip_all => "Dancer::Session::Cookie 0.14 required"
 diag "Loaded Dancer::Session::Cookie version "
     . $Dancer::Session::Cookie::VERSION;
 
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => "Test::TCP required"
-    unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-Test::TCP->import;
-
 plan skip_all => "HTTP::Cookies required"
     unless Dancer::ModuleLoader->load('HTTP::Cookies');
 HTTP::Cookies->import;
 
 plan tests=> 7;
 
-test_tcp(
-    client => sub {
-        my $port = shift;
+require LWP::UserAgent;
+require LWP::UserAgent::PSGI;
+require HTTP::Cookies;
 
-        require LWP::UserAgent;
-        require HTTP::Cookies;
+my $app = do {
+    use Dancer ':tests';
 
-        my $ua = LWP::UserAgent->new;
+    set( apphandler          => 'PSGI',
+         appdir              => '', # quiet warnings not having an appdir
+         startup_info        => 0,  # quiet startup banner
+         session_cookie_key  => "John has a long mustache",
+         session             => "cookie" );
 
-        # Simulate two different browsers with two different jars
-        my @jars = (HTTP::Cookies->new, HTTP::Cookies->new);
-        for my $jar (@jars) {
-            $ua->cookie_jar( $jar );
+    get "/*" => sub {
+        my $hits = session("hit_counter") || 0;
+        my $last = session("last_hit") || '';
 
-            my $res = $ua->get("http://0.0:$port/foo");
-            is $res->content, "hits: 0, last_hit: ";
+        session hit_counter => $hits + 1;
+        session last_hit => (splat)[0];
 
-            $res = $ua->get("http://0.0:$port/bar");
-            is $res->content, "hits: 1, last_hit: foo";
+        return "hits: $hits, last_hit: $last";
+    };
 
-            $res = $ua->get("http://0.0:$port/baz");
-            is $res->content, "hits: 2, last_hit: bar";
-        }
+    dance;
+};
 
-        $ua->cookie_jar($jars[0]);
-        my $res = $ua->get("http://0.0:$port/wibble");
-        is $res->content, "hits: 3, last_hit: baz", "session not overwritten";
-    },
-    server => sub {
-        my $port = shift;
+LWP::UserAgent::PSGI->register($app);
 
-        use Dancer ':tests';
+my $ua = LWP::UserAgent->new;
 
-        set( port                => $port,
-             server              => '127.0.0.1',
-             appdir              => '',          # quiet warnings not having an appdir
-             startup_info        => 0,           # quiet startup banner
-             session_cookie_key  => "John has a long mustache",
-             session             => "cookie" );
+# Simulate two different browsers with two different jars
+my @jars = (HTTP::Cookies->new, HTTP::Cookies->new);
+for my $jar (@jars) {
+    $ua->cookie_jar( $jar );
 
-        get "/*" => sub {
-            my $hits = session("hit_counter") || 0;
-            my $last = session("last_hit") || '';
+    my $res = $ua->get("http://0.0/foo");
+    is $res->content, "hits: 0, last_hit: ";
 
-            session hit_counter => $hits + 1;
-            session last_hit => (splat)[0];
+    $res = $ua->get("http://0.0/bar");
+    is $res->content, "hits: 1, last_hit: foo";
 
-            return "hits: $hits, last_hit: $last";
-        };
+    $res = $ua->get("http://0.0/baz");
+    is $res->content, "hits: 2, last_hit: bar";
+}
 
-        dance;
-    }
-);
+$ua->cookie_jar($jars[0]);
+my $res = $ua->get("http://0.0/wibble");
+is $res->content, "hits: 3, last_hit: baz", "session not overwritten";

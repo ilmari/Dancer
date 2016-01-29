@@ -2,35 +2,30 @@ use Test::More import => ['!pass'];
 use strict;
 use warnings;
 
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => 'Test::TCP is needed to run this test'
-    unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
 plan tests => 8;
 
-use LWP::UserAgent;
+use Plack::Test;
+use HTTP::Request;
 use HTTP::Headers;
 
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
-        my $ua = LWP::UserAgent->new;
+        my $cb = shift;
 
-        my $request = HTTP::Request->new(GET => "http://127.0.0.1:$port/req");
+        my $request = HTTP::Request->new(GET => "http://127.0.0.1/req");
         $request->header('X-Requested-With' => 'XMLHttpRequest');
-        my $res = $ua->request($request);
+        my $res = $cb->($request);
         ok($res->is_success, "server responded");
         is($res->content, 1, "content ok");
 
-        $request = HTTP::Request->new(GET => "http://127.0.0.1:$port/req");
-        $res = $ua->request($request);
+        $request = HTTP::Request->new(GET => "http://127.0.0.1/req");
+        $res = $cb->($request);
         ok($res->is_success, "server responded");
         is($res->content, 0, "content ok");
     },
-    server => sub {
-        my $port = shift;
+    app => do {
         use Dancer;
-        set (port         => $port,
-             server       => '127.0.0.1',
+        set (apphandler => 'PSGI',
              startup_info => 0);
 
         get '/req' => sub {

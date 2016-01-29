@@ -3,12 +3,7 @@ use warnings;
 use Test::More import => ['!pass'];
 use Dancer ':syntax';
 use Dancer::Test;
-
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => 'Test::TCP is needed to run this test'
-    unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-
-use LWP::UserAgent;
+use Plack::Test;
 
 plan tests => 43;
 
@@ -18,10 +13,9 @@ ok(Dancer::Plugin::Ajax::ajax( '/', sub { "ajax" } ), "ajax helper called");
 ok(!Dancer::App->current->registry->is_empty,
     "registry is not empty");
 
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
-        my $ua = LWP::UserAgent->new;
+        my $cb = shift;
 
         my @queries = (
             { path => 'req', ajax => 1, success => 1, content => 1 },
@@ -38,12 +32,12 @@ Test::TCP::test_tcp(
         foreach my $query (@queries) {
             ok my $request =
               HTTP::Request->new(
-                GET => "http://127.0.0.1:$port/" . $query->{path} );
+                GET => "http://127.0.0.1/" . $query->{path} );
 
             $request->header( 'X-Requested-With' => 'XMLHttpRequest' )
               if ( $query->{ajax} == 1);
 
-            ok my $res = $ua->request($request);
+            ok my $res = $cb->($request);
 
             if ( $query->{success} == 1) {
                 ok $res->is_success;
@@ -57,18 +51,17 @@ Test::TCP::test_tcp(
 
         # test ajax with content_type to json
         ok my $request =
-          HTTP::Request->new( GET => "http://127.0.0.1:$port/ajax.json" );
+          HTTP::Request->new( GET => "http://127.0.0.1/ajax.json" );
         $request->header( 'X-Requested-With' => 'XMLHttpRequest' );
-        ok my $res = $ua->request($request);
+        ok my $res = $cb->($request);
         like $res->header('Content-Type'), qr/json/;
     },
-    server => sub {
-        my $port = shift;
+    app => do {
 
         use Dancer;
         use Dancer::Plugin::Ajax;
 
-        set startup_info => 0, port => $port, server => '127.0.0.1', layout => 'wibble';
+        set apphandler => 'PSGI', startup_info => 0, layout => 'wibble';
 
         ajax '/req' => sub {
             return 1;

@@ -4,35 +4,27 @@ use warnings;
 # Test that vars are really reset between each request
 
 use Test::More;
-
-use LWP::UserAgent;
-
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => "Test::TCP is needed for this test"
-    unless Dancer::ModuleLoader->load("Test::TCP" => "1.30");
+use Plack::Test;
 
 plan tests => 10;
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
-        my $ua  = LWP::UserAgent->new;
+        my $cb = shift;
         for (1..10) {
             my $req = HTTP::Request->new( 
-                GET => "http://127.0.0.1:$port/getvarfoo"
+                GET => "http://127.0.0.1/getvarfoo"
             );
-            my $res = $ua->request($req);
+            my $res = $cb->($req);
             is $res->content, 1;
         }
     },
-    server => sub {
-        my $port = shift;
-
+    app => do {
         use Dancer ":tests";
 
         # vars should be reset before the handler is called
         var foo => 42;
 
-        set startup_info => 0, port => $port, server => '127.0.0.1';
+        set startup_info => 0, apphandler => 'PSGI';
 
         get "/getvarfoo" => sub {
             return ++vars->{foo};

@@ -1,14 +1,7 @@
 use strict;
 use warnings;
 use Test::More import => ['!pass'];
-use LWP::UserAgent;
-
-BEGIN {
-    use Dancer::ModuleLoader;
-    plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-    plan skip_all => 'Test::TCP is needed to run this test'
-      unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-}
+use Plack::Test;
 
 plan tests => 4;
 
@@ -18,22 +11,20 @@ use Dancer::Test;
 test();
 
 sub test {
-    Test::TCP::test_tcp(
+    test_psgi(
         client => sub {
-            my $port = shift;
-            my $url  = "http://127.0.0.1:$port/";
+            my $cb = shift;
+            my $url  = "http://127.0.0.1/";
 
-            my $ua = LWP::UserAgent->new;
             for (qw/204 304/) {
                 my $req = HTTP::Request->new( GET => $url . $_ );
-                my $res = $ua->request($req);
+                my $res = $cb->($req);
                 ok !$res->content, 'no content for '.$_;
                 ok !$res->header('Content-Length'), 'no content-length for '.$_;
             }
         },
-        server => sub {
-            my $port = shift;
-            set port => $port, server => '127.0.0.1', startup_info => 0;
+        app => do {
+            set apphandler => 'PSGI', startup_info => 0;
 
             get '/204' => sub {
                 status 204;

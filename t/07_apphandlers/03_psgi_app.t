@@ -1,42 +1,31 @@
 use Test::More import => ['!pass'];
 use strict;
 use warnings;
-use Dancer::ModuleLoader;
 
-plan skip_all => "skip test with Test::TCP in win32" if $^O eq 'MSWin32';
-plan skip_all => "Test::TCP is needed to run this test"
-    unless Dancer::ModuleLoader->load('Test::TCP' => "1.30");
-plan skip_all => "Plack is needed to run this test"
-    unless Dancer::ModuleLoader->load('Plack::Request');
-
-use LWP::UserAgent;
-
-Dancer::ModuleLoader->load('Plack::Loader');
+use Plack::Test;
+use HTTP::Request::Common;
 
 my $app = Dancer::Handler->psgi_app;
 
 plan tests => 3;
 
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
-        my $ua = LWP::UserAgent->new;
+        my $cb = shift;
 
-        my $res = $ua->get("http://127.0.0.1:$port/env");
+        my $res = $cb->(GET "http://127.0.0.1/env");
         like $res->content, qr/psgi\.version/,
             'content looks good for /env';
 
-        $res = $ua->get("http://127.0.0.1:$port/name/bar");
+        $res = $cb->(GET "http://127.0.0.1/name/bar");
         like $res->content, qr/Your name: bar/,
             'content looks good for /name/bar';
 
-        $res = $ua->get("http://127.0.0.1:$port/name/baz");
+        $res = $cb->(GET "http://127.0.0.1/name/baz");
         like $res->content, qr/Your name: baz/,
             'content looks good for /name/baz';
     },
-    server => sub {
-        my $port = shift;
-
+    app => do {
         use File::Spec;
         use lib File::Spec->catdir( 't', 'lib' );
         use TestApp;
@@ -44,6 +33,6 @@ Test::TCP::test_tcp(
         set apphandler  => 'PSGI', environment => 'production';
         Dancer::Config->load;
 
-        Plack::Loader->auto(port => $port, server => '127.0.0.1')->run($app);
+        $app;
     },
 );

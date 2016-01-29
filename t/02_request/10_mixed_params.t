@@ -2,23 +2,18 @@ use Test::More import => ['!pass'];
 use strict;
 use warnings;
 
+use Plack::Test;
+use HTTP::Request::Common;
 use Dancer ':syntax';
 use Dancer::ModuleLoader;
 use File::Spec;
 use lib File::Spec->catdir( 't', 'lib' );
 
-plan skip_all => "skip test with Test::TCP in win32" if ($^O eq 'MSWin32' or $^O eq 'cygwin');
-plan skip_all => "Test::TCP is needed for this test"
-    unless Dancer::ModuleLoader->load("Test::TCP" => "1.30");
-
-use LWP::UserAgent;
-
 plan tests => 2;
-Test::TCP::test_tcp(
+test_psgi(
     client => sub {
-        my $port = shift;
-        my $ua = LWP::UserAgent->new;
-        my $res = $ua->post("http://127.0.0.1:$port/params/route?a=1&var=query",
+        my $cb = shift;
+        my $res = $cb->(POST "http://127.0.0.1/params/route?a=1&var=query",
                             {var => 'post', b => 2});
 
         ok $res->is_success, 'req is success';
@@ -45,15 +40,14 @@ Test::TCP::test_tcp(
         };
         is_deeply $VAR1, $expected, "parsed params are OK";
     },
-    server => sub {
+    app => do {
         my $port = shift;
 
         use TestApp;
         Dancer::Config->load;
 
         set ( environment  => 'production',
-              port         => $port,
-              server       => '127.0.0.1',
+              apphandler   => 'PSGI',
               startup_info => 0);
         Dancer->dance();
     },
